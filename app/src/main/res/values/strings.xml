@@ -1,0 +1,26 @@
+<resources>
+    <string name="app_name">ITthute Media Splitter</string>
+    <string name="app_tagline">Extract audio. Keep video. Choose the exact clip.</string>
+    <string name="select_video">Select video</string>
+    <string name="no_video_selected">No video selected</string>
+    <string name="duration_unknown">Duration: —</string>
+    <string name="output_type">What would you like to save?</string>
+    <string name="audio_clip">Trimmed audio</string>
+    <string name="silent_video_clip">Trimmed video without audio</string>
+    <string name="format">Output format</string>
+    <string name="clip_range">Clip range</string>
+    <string name="start_time">Start: %1$s</string>
+    <string name="end_time">End: %1$s</string>
+    <string name="clip_length">Length: %1$s</string>
+    <string name="export">Choose save location &amp; export</string>
+    <string name="cancel">Cancel</string>
+    <string name="ready">Select a video to begin.</string>
+    <string name="processing">Processing media…</string>
+    <string name="export_complete">Export complete.</string>
+    <string name="export_cancelled">Export cancelled.</string>
+    <string name="open_source_notice">Runs fully on your device. No media is uploaded.</string>
+    <string name="select_valid_range">Choose an end time later than the start time.</string>
+    <string name="select_input_first">Select an input video first.</string>
+    <string name="cannot_read_video">The selected video could not be read.</string>
+    <string name="cannot_write_output">The selected output location could not be written.</string>
+</resources>
