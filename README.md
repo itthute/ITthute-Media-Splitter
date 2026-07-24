@@ -18,7 +18,7 @@ This repository contains the first working MVP. The code is prepared for Android
 - Kotlin and Android Views
 - Material 3 components
 - Android Storage Access Framework (`OpenDocument` and `CreateDocument`)
-- `dev.ffmpegkit-maintained:ffmpeg-kit-full-gpl:6.0.2`
+- `dev.ffmpegkit-maintained:ffmpeg-kit-full-gpl:6.0.3`
 - Minimum Android version: Android 7.0 (API 24)
 - Target/compile SDK: API 35
 
