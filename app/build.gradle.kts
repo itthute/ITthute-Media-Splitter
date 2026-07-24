@@ -9,10 +9,10 @@ android {
 
     defaultConfig {
         applicationId = "africa.itthute.mediasplitter"
-        minSdk = 24
+        minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
     }
 
     buildFeatures { viewBinding = true }
@@ -24,7 +24,7 @@ android {
     kotlinOptions { jvmTarget = "17" }
 
     packaging {
-        jniLibs { useLegacyPackaging = false }
+        jniLibs { useLegacyPackaging = true }
         resources.excludes += setOf("META-INF/DEPENDENCIES", "META-INF/LICENSE*", "META-INF/NOTICE*")
     }
 }
@@ -36,5 +36,5 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.10.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
-    implementation("dev.ffmpegkit-maintained:ffmpeg-kit-full-gpl:8.1.7")
+    implementation("dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.7")
 }

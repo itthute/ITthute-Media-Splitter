@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/navigation_splitter"
+        android:icon="@drawable/ic_split"
+        android:title="@string/splitter" />
+    <item
+        android:id="@+id/navigation_split_media"
+        android:icon="@drawable/ic_media_library"
+        android:title="@string/split_media" />
+    <item
+        android:id="@+id/navigation_diagnostics"
+        android:icon="@drawable/ic_diagnostics"
+        android:title="@string/diagnostics" />
+</menu>
