@@ -11,8 +11,8 @@ android {
         applicationId = "africa.itthute.mediasplitter"
         minSdk = 29
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.1.1"
+        versionCode = 4
+        versionName = "1.2.0"
     }
 
     buildFeatures { viewBinding = true }
@@ -44,4 +44,6 @@ dependencies {
     // explicitly so FFmpegKitConfig can initialise on a physical Android device.
     implementation("com.arthenica:smart-exception-java:0.2.1")
     implementation("com.arthenica:smart-exception-common:0.2.1")
+
+    testImplementation("junit:junit:4.13.2")
 }
