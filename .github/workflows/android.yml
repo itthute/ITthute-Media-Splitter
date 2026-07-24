@@ -29,6 +29,14 @@ jobs:
         with:
           gradle-version: "8.9"
 
+      - name: Resolve media engine version
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle :app:dependencyInsight \
+            --dependency ffmpeg-kit-full-gpl \
+            --configuration debugRuntimeClasspath 2>&1 | tee gradle-dependencies.log
+
       - name: Run unit tests
         shell: bash
         run: |
@@ -41,6 +49,7 @@ jobs:
         with:
           name: ITthute-Media-Splitter-build-logs
           path: |
+            gradle-dependencies.log
             gradle-test.log
             app/build/reports/tests/
           if-no-files-found: warn
