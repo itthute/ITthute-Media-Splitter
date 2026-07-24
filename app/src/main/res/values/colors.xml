@@ -1,0 +1,7 @@
+<resources>
+    <color name="itthute_blue">#1565C0</color>
+    <color name="itthute_navy">#082B49</color>
+    <color name="itthute_teal">#008C95</color>
+    <color name="itthute_on_primary">#FFFFFF</color>
+    <color name="itthute_divider">#667078</color>
+</resources>

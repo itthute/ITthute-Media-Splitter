@@ -1,0 +1,6 @@
+<resources>
+    <plurals name="saved_media_count">
+        <item quantity="one">%d recent split media file</item>
+        <item quantity="other">%d recent split media files</item>
+    </plurals>
+</resources>
