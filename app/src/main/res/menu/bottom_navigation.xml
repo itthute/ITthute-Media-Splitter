@@ -5,6 +5,10 @@
         android:icon="@drawable/ic_split"
         android:title="@string/splitter" />
     <item
+        android:id="@+id/navigation_file_divider"
+        android:icon="@drawable/ic_file_divider"
+        android:title="@string/file_divider_short" />
+    <item
         android:id="@+id/navigation_split_media"
         android:icon="@drawable/ic_media_library"
         android:title="@string/split_media" />
