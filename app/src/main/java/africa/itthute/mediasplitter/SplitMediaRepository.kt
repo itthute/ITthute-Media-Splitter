@@ -4,6 +4,7 @@ import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -47,6 +48,50 @@ class SplitMediaRepository(private val context: Context, private val diagnostics
             }.onFailure { diagnostics.log("ERROR", "Metadata update failed for ${item.userVisiblePath}", it) }
         }
 
+    suspend fun delete(item: SplitMediaItem): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val deleted = context.contentResolver.delete(item.uri, null, null)
+            check(deleted > 0) { "Android did not delete the media item" }
+            diagnostics.log("INFO", "Deleted media: ${item.userVisiblePath}")
+        }.onFailure {
+            diagnostics.log("ERROR", "Could not delete ${item.userVisiblePath}", it)
+        }
+    }
+
+    suspend fun moveToTree(item: SplitMediaItem, treeUri: Uri): Result<Uri> = withContext(Dispatchers.IO) {
+        runCatching {
+            val documentId = DocumentsContract.getTreeDocumentId(treeUri)
+            val parentDocumentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
+            val targetUri = requireNotNull(
+                DocumentsContract.createDocument(
+                    context.contentResolver,
+                    parentDocumentUri,
+                    item.mimeType,
+                    item.displayName
+                )
+            ) { "The selected destination could not create the file" }
+
+            try {
+                context.contentResolver.openInputStream(item.uri).use { input ->
+                    requireNotNull(input) { "Android could not open the source file" }
+                    context.contentResolver.openOutputStream(targetUri, "w").use { output ->
+                        requireNotNull(output) { "Android could not open the destination file" }
+                        input.copyTo(output)
+                    }
+                }
+                val deleted = context.contentResolver.delete(item.uri, null, null)
+                check(deleted > 0) { "The file was copied, but Android did not remove the original" }
+                diagnostics.log("INFO", "Moved ${item.userVisiblePath} to $treeUri")
+                targetUri
+            } catch (throwable: Throwable) {
+                runCatching { DocumentsContract.deleteDocument(context.contentResolver, targetUri) }
+                throw throwable
+            }
+        }.onFailure {
+            diagnostics.log("ERROR", "Could not move ${item.userVisiblePath}", it)
+        }
+    }
+
     private fun queryCollection(collection: Uri, audio: Boolean, folder: String): List<SplitMediaItem> {
         val projection = arrayOf(
             MediaStore.MediaColumns._ID,
@@ -57,9 +102,15 @@ class SplitMediaRepository(private val context: Context, private val diagnostics
             MediaStore.MediaColumns.DATE_ADDED,
             MediaStore.MediaColumns.DURATION
         )
-        val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} = ?"
+        val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
         val results = mutableListOf<SplitMediaItem>()
-        context.contentResolver.query(collection, projection, selection, arrayOf(folder), null)?.use { cursor ->
+        context.contentResolver.query(
+            collection,
+            projection,
+            selection,
+            arrayOf("$folder%"),
+            null
+        )?.use { cursor ->
             val idIndex = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
             val nameIndex = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
             val pathIndex = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.RELATIVE_PATH)
@@ -94,5 +145,7 @@ class SplitMediaRepository(private val context: Context, private val diagnostics
     companion object {
         const val AUDIO_FOLDER = "Music/ITthute Media Splitter/"
         const val VIDEO_FOLDER = "Movies/ITthute Media Splitter/"
+        const val DIVIDED_AUDIO_FOLDER = "Music/ITthute Media Splitter/Divided/"
+        const val DIVIDED_VIDEO_FOLDER = "Movies/ITthute Media Splitter/Divided/"
     }
 }
