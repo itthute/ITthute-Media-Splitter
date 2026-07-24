@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.ITthuteMediaSplitter" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">#0B5CAD</item>
+        <item name="colorSecondary">#00A6A6</item>
+        <item name="android:statusBarColor">#082A4A</item>
+        <item name="android:navigationBarColor">#082A4A</item>
+    </style>
+</resources>
