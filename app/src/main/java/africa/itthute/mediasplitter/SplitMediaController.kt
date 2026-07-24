@@ -1,10 +1,14 @@
 package africa.itthute.mediasplitter
 
+import android.app.Activity
+import android.app.RecoverableSecurityException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.provider.DocumentsContract
+import android.provider.MediaStore
 import android.text.format.DateFormat
 import android.text.format.Formatter
 import android.view.Gravity
@@ -13,12 +17,14 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.Toast
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.setPadding
 import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.launch
 import africa.itthute.mediasplitter.databinding.ActivityMainBinding
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import kotlinx.coroutines.launch
 import java.util.Date
 
 class SplitMediaController(
@@ -27,6 +33,51 @@ class SplitMediaController(
     private val repository: SplitMediaRepository,
     private val diagnostics: DiagnosticsStore
 ) {
+    private var pendingMoveItem: SplitMediaItem? = null
+    private var pendingDeleteItem: SplitMediaItem? = null
+
+    private val moveDestinationPicker = activity.registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { destinationUri ->
+        val item = pendingMoveItem.also { pendingMoveItem = null } ?: return@registerForActivityResult
+        if (destinationUri == null) {
+            toast(activity.getString(R.string.move_cancelled))
+            return@registerForActivityResult
+        }
+        runCatching {
+            activity.contentResolver.takePersistableUriPermission(
+                destinationUri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+        }.onFailure {
+            diagnostics.log("WARN", "Destination provider did not grant persistent write access", it)
+        }
+        activity.lifecycleScope.launch {
+            binding.mediaListStatus.text = activity.getString(R.string.moving_media_file, item.displayName)
+            repository.moveToTree(item, destinationUri)
+                .onSuccess {
+                    toast(activity.getString(R.string.media_moved))
+                    refresh()
+                }
+                .onFailure {
+                    toast(it.message ?: activity.getString(R.string.move_failed))
+                    refresh()
+                }
+        }
+    }
+
+    private val deleteConsentLauncher = activity.registerForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        val item = pendingDeleteItem.also { pendingDeleteItem = null }
+        if (result.resultCode == Activity.RESULT_OK) {
+            toast(activity.getString(R.string.media_deleted))
+            refresh()
+        } else if (item != null) {
+            toast(activity.getString(R.string.delete_cancelled))
+        }
+    }
+
     fun configure() {
         binding.refreshMediaButton.setOnClickListener { refresh() }
         binding.openDestinationButton.setOnClickListener { openSavedDestination() }
@@ -94,12 +145,16 @@ class SplitMediaController(
             menu.add(activity.getString(R.string.edit_media_metadata))
             menu.add(activity.getString(R.string.copy_file_path))
             menu.add(activity.getString(R.string.share))
+            menu.add(activity.getString(R.string.move_file))
+            menu.add(activity.getString(R.string.delete_file))
             setOnMenuItemClickListener { selected ->
                 when (selected.title.toString()) {
                     activity.getString(R.string.open_media) -> openMedia(item)
                     activity.getString(R.string.edit_media_metadata) -> editMediaMetadata(item)
                     activity.getString(R.string.copy_file_path) -> copyMediaPath(item)
                     activity.getString(R.string.share) -> shareMedia(item)
+                    activity.getString(R.string.move_file) -> moveMedia(item)
+                    activity.getString(R.string.delete_file) -> confirmDelete(item)
                 }
                 true
             }
@@ -171,6 +226,49 @@ class SplitMediaController(
             }
         }
         dialog.show()
+    }
+
+    private fun moveMedia(item: SplitMediaItem) {
+        pendingMoveItem = item
+        moveDestinationPicker.launch(null)
+    }
+
+    private fun confirmDelete(item: SplitMediaItem) {
+        MaterialAlertDialogBuilder(activity)
+            .setTitle(R.string.delete_file)
+            .setMessage(activity.getString(R.string.delete_file_confirmation, item.displayName))
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.delete_file) { _, _ -> deleteMedia(item) }
+            .show()
+    }
+
+    private fun deleteMedia(item: SplitMediaItem) {
+        activity.lifecycleScope.launch {
+            repository.delete(item)
+                .onSuccess {
+                    toast(activity.getString(R.string.media_deleted))
+                    refresh()
+                }
+                .onFailure { error ->
+                    if (!launchDeleteConsent(item, error)) {
+                        toast(error.message ?: activity.getString(R.string.delete_failed))
+                    }
+                }
+        }
+    }
+
+    private fun launchDeleteConsent(item: SplitMediaItem, error: Throwable): Boolean {
+        val intentSender = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
+                MediaStore.createDeleteRequest(activity.contentResolver, listOf(item.uri)).intentSender
+            }
+            error is RecoverableSecurityException -> error.userAction.actionIntent.intentSender
+            else -> null
+        } ?: return false
+
+        pendingDeleteItem = item
+        deleteConsentLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
+        return true
     }
 
     private fun openSavedDestination() {
