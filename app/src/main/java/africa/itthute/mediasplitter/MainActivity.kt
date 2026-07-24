@@ -123,7 +123,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showPage(page: Page): Boolean {
         binding.splitterPage.visibility = if (page == Page.SPLITTER) View.VISIBLE else View.GONE
-        binding.fileDividerPage.visibility = if (page == Page.FILE_DIVIDER) View.VISIBLE else View.GONE
+        fileDividerController.pageView.visibility = if (page == Page.FILE_DIVIDER) View.VISIBLE else View.GONE
         binding.splitMediaPage.visibility = if (page == Page.SPLIT_MEDIA) View.VISIBLE else View.GONE
         binding.diagnosticsPage.visibility = if (page == Page.DIAGNOSTICS) View.VISIBLE else View.GONE
         when (page) {
