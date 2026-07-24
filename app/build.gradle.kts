@@ -69,8 +69,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("com.google.android.material:material:1.12.0")
 
-    // Maintained FFmpegKit fork. The GPL build includes LAME MP3 and x264 support.
-    implementation("dev.ffmpegkit-maintained:ffmpeg-kit-full-gpl:6.0.2")
+    // Maintained FFmpegKit fork. Resolve the newest 6.0 LTS GPL build first;
+    // CI reports the concrete Maven version so it can be pinned after verification.
+    implementation("dev.ffmpegkit-maintained:ffmpeg-kit-full-gpl:6.0.+")
 
     testImplementation("junit:junit:4.13.2")
 }
