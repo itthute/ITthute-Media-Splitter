@@ -12,6 +12,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.coroutines.resume
+import kotlin.math.min
 
 class MediaProcessor(
     private val context: Context,
@@ -19,6 +20,9 @@ class MediaProcessor(
 ) {
     @Volatile
     private var activeSessionId: Long? = null
+
+    @Volatile
+    private var cancellationRequested = false
 
     suspend fun export(
         sourceUri: Uri,
@@ -28,6 +32,7 @@ class MediaProcessor(
         extension: String,
         codecArguments: List<String>
     ): Result<String> = withContext(Dispatchers.IO) {
+        cancellationRequested = false
         runCatching {
             require(endSeconds > startSeconds) { "End time must be after start time" }
             val input = copyToCache(sourceUri)
@@ -48,14 +53,8 @@ class MediaProcessor(
                     "INFO",
                     "Starting ${kind.name.lowercase()} export: ${arguments.joinToString(" ") { redactCachePath(it) }}"
                 )
-                val session = execute(arguments)
-                val logs = session.allLogsAsString.orEmpty()
-                if (!ReturnCode.isSuccess(session.returnCode)) {
-                    val details = session.failStackTrace?.takeIf { it.isNotBlank() }
-                        ?: logs.takeLast(12_000).takeIf { it.isNotBlank() }
-                        ?: "FFmpeg returned ${session.returnCode}"
-                    throw MediaProcessingException(details)
-                }
+                val session = execute(arguments, (duration * 1000).toLong())
+                ensureSessionSucceeded(session)
                 check(output.exists() && output.length() > 0L) { "The media engine did not create an output file" }
                 val savedPath = saveResult(output, kind, extension)
                 diagnostics.log("INFO", "Export completed: $savedPath (${output.length()} bytes)")
@@ -71,8 +70,129 @@ class MediaProcessor(
         }
     }
 
+    suspend fun divide(
+        sourceUri: Uri,
+        totalDurationSeconds: Double,
+        segmentSeconds: Int,
+        sourceIsAudio: Boolean,
+        onProgress: (DivisionProgress) -> Unit
+    ): Result<DivisionResult> = withContext(Dispatchers.IO) {
+        cancellationRequested = false
+        runCatching {
+            DivisionRules.validationMessage(totalDurationSeconds, segmentSeconds)?.let { error(it) }
+            val totalParts = DivisionRules.segmentCount(totalDurationSeconds, segmentSeconds)
+            val input = copyToCache(sourceUri)
+            val savedPaths = mutableListOf<String>()
+            val batchTimestamp = System.currentTimeMillis()
+            val extension = if (sourceIsAudio) "m4a" else "mp4"
+            val kind = if (sourceIsAudio) MediaKind.AUDIO else MediaKind.VIDEO
+            val folder = if (sourceIsAudio) {
+                SplitMediaRepository.DIVIDED_AUDIO_FOLDER
+            } else {
+                SplitMediaRepository.DIVIDED_VIDEO_FOLDER
+            }
+
+            diagnostics.log(
+                "INFO",
+                "Starting file division: duration=${formatNumber(totalDurationSeconds)}s, " +
+                    "segment=${segmentSeconds}s, parts=$totalParts, audio=$sourceIsAudio"
+            )
+
+            try {
+                repeat(totalParts) { zeroBasedIndex ->
+                    if (cancellationRequested) throw DivisionCancelledException(savedPaths.size)
+                    val partNumber = zeroBasedIndex + 1
+                    val start = zeroBasedIndex * segmentSeconds.toDouble()
+                    val partDuration = min(segmentSeconds.toDouble(), totalDurationSeconds - start)
+                    val output = File(
+                        context.cacheDir,
+                        "division_${batchTimestamp}_${partNumber.toString().padStart(3, '0')}.$extension"
+                    )
+                    try {
+                        val arguments = buildDivisionArguments(
+                            input = input,
+                            output = output,
+                            startSeconds = start,
+                            durationSeconds = partDuration,
+                            sourceIsAudio = sourceIsAudio
+                        )
+                        onProgress(
+                            DivisionProgress(
+                                currentPart = partNumber,
+                                totalParts = totalParts,
+                                overallPercent = ((zeroBasedIndex.toDouble() / totalParts) * 100).toInt(),
+                                message = "Creating part $partNumber of $totalParts"
+                            )
+                        )
+                        val session = execute(
+                            arguments = arguments,
+                            expectedDurationMs = (partDuration * 1000).toLong()
+                        ) { currentPartPercent ->
+                            val overall = (((zeroBasedIndex + currentPartPercent / 100.0) / totalParts) * 100)
+                                .toInt()
+                                .coerceIn(0, 99)
+                            onProgress(
+                                DivisionProgress(
+                                    currentPart = partNumber,
+                                    totalParts = totalParts,
+                                    overallPercent = overall,
+                                    message = "Creating part $partNumber of $totalParts"
+                                )
+                            )
+                        }
+                        if (ReturnCode.isCancel(session.returnCode) || cancellationRequested) {
+                            throw DivisionCancelledException(savedPaths.size)
+                        }
+                        ensureSessionSucceeded(session)
+                        check(output.exists() && output.length() > 0L) {
+                            "The media engine did not create division part $partNumber"
+                        }
+                        val requestedName = "ITthute_divided_${batchTimestamp}_part_${partNumber.toString().padStart(3, '0')}.$extension"
+                        val savedPath = saveResult(
+                            source = output,
+                            kind = kind,
+                            extension = extension,
+                            requestedName = requestedName,
+                            relativePathOverride = folder
+                        )
+                        savedPaths += savedPath
+                        diagnostics.log("INFO", "Division part $partNumber saved: $savedPath")
+                    } finally {
+                        output.delete()
+                        activeSessionId = null
+                    }
+                }
+                onProgress(
+                    DivisionProgress(
+                        currentPart = totalParts,
+                        totalParts = totalParts,
+                        overallPercent = 100,
+                        message = "Division complete: $totalParts files saved"
+                    )
+                )
+                diagnostics.log("INFO", "File division completed: ${savedPaths.size} files saved")
+                DivisionResult(savedPaths)
+            } catch (throwable: Throwable) {
+                diagnostics.log(
+                    "ERROR",
+                    "File division failed after ${savedPaths.size} of $totalParts parts",
+                    throwable
+                )
+                throw throwable
+            } finally {
+                activeSessionId = null
+                input.delete()
+            }
+        }
+    }
+
     fun cancel() {
-        val id = activeSessionId ?: return
+        cancellationRequested = true
+        val id = activeSessionId
+        if (id == null) {
+            diagnostics.log("INFO", "Cancellation requested between media operations")
+            return
+        }
         runCatching { FFmpegKit.cancel(id) }
             .onSuccess { diagnostics.log("INFO", "Cancellation requested for session $id") }
             .onFailure { diagnostics.log("ERROR", "Could not cancel session $id", it) }
@@ -84,8 +204,10 @@ class MediaProcessor(
         runCatching {
             Class.forName("com.arthenica.ffmpegkit.FFmpegKit", false, loader)
             Class.forName("com.arthenica.ffmpegkit.FFmpegKitConfig", false, loader)
+            Class.forName("com.arthenica.smartexception.java.Exceptions", false, loader)
         }.onSuccess {
             lines += "FFmpegKit Java API: present"
+            lines += "Smart Exception runtime: present"
         }.onFailure {
             lines += "FFmpegKit Java API: unavailable (${it::class.java.name}: ${it.message})"
             return lines.joinToString("\n")
@@ -114,24 +236,80 @@ class MediaProcessor(
         return lines.joinToString("\n")
     }
 
-    private suspend fun execute(arguments: List<String>): FFmpegSession =
-        suspendCancellableCoroutine { continuation ->
-            try {
-                val command = arguments.joinToString(" ") { quoteArgument(it) }
-                val session = FFmpegKit.executeAsync(command) { completed ->
-                    if (continuation.isActive) continuation.resume(completed)
-                }
-                activeSessionId = session.sessionId
-                continuation.invokeOnCancellation {
-                    runCatching { FFmpegKit.cancel(session.sessionId) }
-                }
-            } catch (throwable: Throwable) {
-                diagnostics.log("ERROR", "FFmpegKit could not start", throwable)
-                if (continuation.isActive) {
-                    continuation.resumeWith(Result.failure(throwable))
-                }
-            }
+    private fun buildDivisionArguments(
+        input: File,
+        output: File,
+        startSeconds: Double,
+        durationSeconds: Double,
+        sourceIsAudio: Boolean
+    ): List<String> {
+        val arguments = mutableListOf(
+            "-hide_banner",
+            "-y",
+            "-ss", formatNumber(startSeconds),
+            "-i", input.absolutePath,
+            "-t", formatNumber(durationSeconds)
+        )
+        if (sourceIsAudio) {
+            arguments += listOf("-vn", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart")
+        } else {
+            arguments += listOf(
+                "-map", "0:v:0",
+                "-map", "0:a?",
+                "-c:v", "mpeg4",
+                "-q:v", "3",
+                "-pix_fmt", "yuv420p",
+                "-c:a", "aac",
+                "-b:a", "160k",
+                "-movflags", "+faststart"
+            )
         }
+        arguments += output.absolutePath
+        return arguments
+    }
+
+    private fun ensureSessionSucceeded(session: FFmpegSession) {
+        if (ReturnCode.isSuccess(session.returnCode)) return
+        if (ReturnCode.isCancel(session.returnCode) || cancellationRequested) {
+            throw DivisionCancelledException(0)
+        }
+        val logs = session.allLogsAsString.orEmpty()
+        val details = session.failStackTrace?.takeIf { it.isNotBlank() }
+            ?: logs.takeLast(12_000).takeIf { it.isNotBlank() }
+            ?: "FFmpeg returned ${session.returnCode}"
+        throw MediaProcessingException(details)
+    }
+
+    private suspend fun execute(
+        arguments: List<String>,
+        expectedDurationMs: Long,
+        onProgress: (Int) -> Unit = {}
+    ): FFmpegSession = suspendCancellableCoroutine { continuation ->
+        try {
+            val command = arguments.joinToString(" ") { quoteArgument(it) }
+            val session = FFmpegKit.executeAsync(
+                command,
+                { completed ->
+                    if (continuation.isActive) continuation.resume(completed)
+                },
+                { /* Detailed FFmpeg output remains available from the completed session. */ },
+                { statistics ->
+                    val percentage = ((statistics.time.toDouble() / expectedDurationMs.coerceAtLeast(1L)) * 100)
+                        .toInt()
+                        .coerceIn(0, 99)
+                    onProgress(percentage)
+                }
+            )
+            activeSessionId = session.sessionId
+            continuation.invokeOnCancellation {
+                cancellationRequested = true
+                runCatching { FFmpegKit.cancel(session.sessionId) }
+            }
+        } catch (throwable: Throwable) {
+            diagnostics.log("ERROR", "FFmpegKit could not start", throwable)
+            if (continuation.isActive) continuation.resumeWith(Result.failure(throwable))
+        }
+    }
 
     private fun copyToCache(uri: Uri): File {
         val name = queryDisplayName(uri)
@@ -145,15 +323,22 @@ class MediaProcessor(
         return target
     }
 
-    private fun saveResult(source: File, kind: MediaKind, extension: String): String {
+    private fun saveResult(
+        source: File,
+        kind: MediaKind,
+        extension: String,
+        requestedName: String? = null,
+        relativePathOverride: String? = null
+    ): String {
         val timestamp = System.currentTimeMillis()
-        val name = "ITthute_${if (kind == MediaKind.AUDIO) "audio" else "silent_video"}_$timestamp.$extension"
+        val name = requestedName
+            ?: "ITthute_${if (kind == MediaKind.AUDIO) "audio" else "silent_video"}_$timestamp.$extension"
         val collection = if (kind == MediaKind.AUDIO) {
             MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         } else {
             MediaStore.Video.Media.EXTERNAL_CONTENT_URI
         }
-        val relativePath = if (kind == MediaKind.AUDIO) {
+        val relativePath = relativePathOverride ?: if (kind == MediaKind.AUDIO) {
             SplitMediaRepository.AUDIO_FOLDER
         } else {
             SplitMediaRepository.VIDEO_FOLDER
@@ -206,7 +391,8 @@ class MediaProcessor(
     private fun redactCachePath(value: String): String =
         value.replace(context.cacheDir.absolutePath, "<app-cache>")
 
-    private fun formatNumber(number: Double): String = java.lang.String.format(java.util.Locale.US, "%.3f", number)
+    private fun formatNumber(number: Double): String =
+        java.lang.String.format(java.util.Locale.US, "%.3f", number)
 
     private fun mimeType(extension: String): String = when (extension.lowercase()) {
         "mp3" -> "audio/mpeg"
@@ -225,5 +411,22 @@ class MediaProcessor(
 
     enum class MediaKind { AUDIO, VIDEO }
 
+    data class DivisionProgress(
+        val currentPart: Int,
+        val totalParts: Int,
+        val overallPercent: Int,
+        val message: String
+    )
+
+    data class DivisionResult(val savedPaths: List<String>)
+
     class MediaProcessingException(message: String) : Exception(message)
+
+    class DivisionCancelledException(val completedParts: Int) : Exception(
+        if (completedParts > 0) {
+            "Division cancelled after $completedParts files were saved"
+        } else {
+            "Division cancelled"
+        }
+    )
 }

@@ -3,4 +3,12 @@
         <item quantity="one">%d recent split media file</item>
         <item quantity="other">%d recent split media files</item>
     </plurals>
+    <plurals name="division_plan_count">
+        <item quantity="one">This will create %1$d %3$s file using %2$d-second divisions.</item>
+        <item quantity="other">This will create %1$d %3$s files using %2$d-second divisions.</item>
+    </plurals>
+    <plurals name="division_complete_count">
+        <item quantity="one">Division complete: %d file saved.</item>
+        <item quantity="other">Division complete: %d files saved.</item>
+    </plurals>
 </resources>

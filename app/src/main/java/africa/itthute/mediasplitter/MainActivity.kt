@@ -23,9 +23,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var processor: MediaProcessor
     private lateinit var splitMediaController: SplitMediaController
     private lateinit var diagnosticsController: DiagnosticsController
+    private lateinit var fileDividerController: FileDividerController
 
     private var selectedUri: Uri? = null
     private var durationSeconds = 0.0
+    private var selectedIsAudio = false
 
     private val mediaPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@registerForActivityResult
@@ -49,6 +51,14 @@ class MainActivity : AppCompatActivity() {
         val repository = SplitMediaRepository(this, diagnostics)
         splitMediaController = SplitMediaController(this, binding, repository, diagnostics)
         diagnosticsController = DiagnosticsController(this, binding, diagnostics, processor)
+        fileDividerController = FileDividerController(
+            activity = this,
+            binding = binding,
+            processor = processor,
+            diagnostics = diagnostics,
+            chooseMedia = ::launchMediaPicker,
+            onFilesCreated = splitMediaController::refresh
+        )
         diagnostics.log("INFO", "Application started")
 
         configureFormatSelectors()
@@ -56,6 +66,7 @@ class MainActivity : AppCompatActivity() {
         configureSplitterActions()
         splitMediaController.configure()
         diagnosticsController.configure()
+        fileDividerController.configure()
         showPage(Page.SPLITTER)
     }
 
@@ -64,6 +75,11 @@ class MainActivity : AppCompatActivity() {
         if (::splitMediaController.isInitialized && binding.splitMediaPage.visibility == View.VISIBLE) {
             splitMediaController.refresh()
         }
+    }
+
+    override fun onDestroy() {
+        if (::processor.isInitialized) processor.cancel()
+        super.onDestroy()
     }
 
     private fun configureFormatSelectors() {
@@ -83,6 +99,7 @@ class MainActivity : AppCompatActivity() {
         binding.bottomNavigation.setOnItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.navigation_splitter -> showPage(Page.SPLITTER)
+                R.id.navigation_file_divider -> showPage(Page.FILE_DIVIDER)
                 R.id.navigation_split_media -> showPage(Page.SPLIT_MEDIA)
                 R.id.navigation_diagnostics -> showPage(Page.DIAGNOSTICS)
                 else -> false
@@ -91,9 +108,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun configureSplitterActions() {
-        binding.selectButton.setOnClickListener {
-            mediaPicker.launch(arrayOf("video/*", "audio/*"))
-        }
+        binding.selectButton.setOnClickListener { launchMediaPicker() }
         binding.exportAudioButton.setOnClickListener { exportAudio() }
         binding.exportVideoButton.setOnClickListener { exportSilentVideo() }
         binding.cancelButton.setOnClickListener {
@@ -102,12 +117,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun launchMediaPicker() {
+        mediaPicker.launch(arrayOf("video/*", "audio/*"))
+    }
+
     private fun showPage(page: Page): Boolean {
         binding.splitterPage.visibility = if (page == Page.SPLITTER) View.VISIBLE else View.GONE
+        fileDividerController.pageView.visibility = if (page == Page.FILE_DIVIDER) View.VISIBLE else View.GONE
         binding.splitMediaPage.visibility = if (page == Page.SPLIT_MEDIA) View.VISIBLE else View.GONE
         binding.diagnosticsPage.visibility = if (page == Page.DIAGNOSTICS) View.VISIBLE else View.GONE
         when (page) {
-            Page.SPLITTER -> Unit
+            Page.SPLITTER, Page.FILE_DIVIDER -> Unit
             Page.SPLIT_MEDIA -> splitMediaController.refresh()
             Page.DIAGNOSTICS -> diagnosticsController.updateSummary()
         }
@@ -125,17 +145,32 @@ class MainActivity : AppCompatActivity() {
                         val milliseconds = retriever
                             .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                             ?.toLongOrNull() ?: 0L
-                        queryDisplayName(uri) to milliseconds / 1000.0
+                        val mimeType = contentResolver.getType(uri).orEmpty()
+                        val hasVideo = retriever
+                            .extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO)
+                            ?.equals("yes", ignoreCase = true) == true
+                        MediaInfo(
+                            displayName = queryDisplayName(uri),
+                            durationSeconds = milliseconds / 1000.0,
+                            isAudio = mimeType.startsWith("audio/") || !hasVideo
+                        )
                     } finally {
                         retriever.release()
                     }
                 }
             }
             result.onSuccess { info ->
-                durationSeconds = info.second
-                binding.fileLabel.text = info.first
+                durationSeconds = info.durationSeconds
+                selectedIsAudio = info.isAudio
+                binding.fileLabel.text = info.displayName
                 binding.durationLabel.text = getString(R.string.duration_value, formatTime(durationSeconds))
                 binding.endTime.setText(String.format(Locale.US, "%.3f", durationSeconds))
+                fileDividerController.onMediaLoaded(
+                    uri = uri,
+                    displayName = info.displayName,
+                    durationSeconds = info.durationSeconds,
+                    isAudio = info.isAudio
+                )
                 setBusy(false, "Ready")
             }.onFailure {
                 diagnostics.log("ERROR", "Could not read selected media metadata", it)
@@ -160,6 +195,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun exportSilentVideo() {
+        if (selectedIsAudio) return toast("Silent video export requires a video source")
         val extension = binding.videoFormat.selectedItem.toString().lowercase(Locale.US)
         val arguments = when (extension) {
             "webm" -> listOf("-an", "-c:v", "libvpx-vp9", "-crf", "32", "-b:v", "0")
@@ -204,8 +240,8 @@ class MainActivity : AppCompatActivity() {
         binding.progress.visibility = if (busy) View.VISIBLE else View.GONE
         binding.cancelButton.visibility = if (busy) View.VISIBLE else View.GONE
         binding.selectButton.isEnabled = !busy
-        binding.exportAudioButton.isEnabled = !busy
-        binding.exportVideoButton.isEnabled = !busy
+        binding.exportAudioButton.isEnabled = !busy && selectedUri != null
+        binding.exportVideoButton.isEnabled = !busy && selectedUri != null && !selectedIsAudio
         binding.statusLabel.text = message
     }
 
@@ -235,5 +271,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
 
-    private enum class Page { SPLITTER, SPLIT_MEDIA, DIAGNOSTICS }
+    private data class MediaInfo(
+        val displayName: String,
+        val durationSeconds: Double,
+        val isAudio: Boolean
+    )
+
+    private enum class Page { SPLITTER, FILE_DIVIDER, SPLIT_MEDIA, DIAGNOSTICS }
 }
