@@ -2,7 +2,7 @@
 
 ## FFmpegKit maintained fork
 
-This application uses `dev.ffmpegkit-maintained:ffmpeg-kit-full-gpl:6.0.2`, a maintained FFmpegKit-compatible Android bundle.
+This application uses `dev.ffmpegkit-maintained:ffmpeg-kit-full-gpl:6.0.3`, a maintained FFmpegKit-compatible Android bundle.
 
 The GPL-enabled FFmpegKit bundle contains FFmpeg and optional GPL libraries such as x264 and LAME. The resulting distributed application package must comply with the GNU General Public License version 3 and the licenses of the bundled components.
 
