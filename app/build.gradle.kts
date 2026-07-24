@@ -11,8 +11,8 @@ android {
         applicationId = "africa.itthute.mediasplitter"
         minSdk = 29
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.1.1"
     }
 
     buildFeatures { viewBinding = true }
@@ -36,5 +36,12 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.10.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+
     implementation("dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.7")
+
+    // ffmpeg-kit-full 8.1.7 currently publishes an AAR without declaring these
+    // required runtime helper dependencies in its Maven POM. Declare them
+    // explicitly so FFmpegKitConfig can initialise on a physical Android device.
+    implementation("com.arthenica:smart-exception-java:0.2.1")
+    implementation("com.arthenica:smart-exception-common:0.2.1")
 }
