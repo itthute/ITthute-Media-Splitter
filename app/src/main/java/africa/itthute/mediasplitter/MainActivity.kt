@@ -335,7 +335,10 @@ class MainActivity : AppCompatActivity() {
         operationLabel: String
     ) {
         val uri = selectedUri ?: return toast(getString(R.string.choose_media_first))
-        if (!splitterMediaEligible) return updateSplitterEligibilityMessage()
+        if (!splitterMediaEligible) {
+            updateSplitterEligibilityMessage()
+            return
+        }
         val ranges = clipRangeController.ranges().getOrElse { throwable ->
             toast(throwable.message ?: getString(R.string.invalid_clip_ranges))
             return
