@@ -31,41 +31,127 @@ class MediaProcessor(
         kind: MediaKind,
         extension: String,
         codecArguments: List<String>
-    ): Result<String> = withContext(Dispatchers.IO) {
+    ): Result<String> = exportBatch(
+        sourceUri = sourceUri,
+        ranges = listOf(ClipRange(startSeconds, endSeconds)),
+        kind = kind,
+        extension = extension,
+        codecArguments = codecArguments
+    ) {}.map { it.savedPaths.single() }
+
+    suspend fun exportBatch(
+        sourceUri: Uri,
+        ranges: List<ClipRange>,
+        kind: MediaKind,
+        extension: String,
+        codecArguments: List<String>,
+        onProgress: (BatchProgress) -> Unit
+    ): Result<BatchResult> = withContext(Dispatchers.IO) {
         cancellationRequested = false
         runCatching {
-            require(endSeconds > startSeconds) { "End time must be after start time" }
+            require(ranges.isNotEmpty()) { "At least one clip range is required" }
+            ranges.forEachIndexed { index, range ->
+                require(range.endSeconds > range.startSeconds) { "Clip ${index + 1} must end after it starts" }
+            }
             val input = copyToCache(sourceUri)
-            val output = File(context.cacheDir, "output_${System.currentTimeMillis()}.$extension")
-            try {
-                val duration = endSeconds - startSeconds
-                val arguments = mutableListOf(
-                    "-hide_banner",
-                    "-y",
-                    "-ss", formatNumber(startSeconds),
-                    "-i", input.absolutePath,
-                    "-t", formatNumber(duration)
-                )
-                arguments += codecArguments
-                arguments += output.absolutePath
+            val savedPaths = mutableListOf<String>()
+            val batchTimestamp = System.currentTimeMillis()
+            val outputPrefix = if (kind == MediaKind.AUDIO) "audio" else "silent_video"
 
-                diagnostics.log(
-                    "INFO",
-                    "Starting ${kind.name.lowercase()} export: ${arguments.joinToString(" ") { redactCachePath(it) }}"
+            diagnostics.log(
+                "INFO",
+                "Starting ${kind.name.lowercase()} batch export: clips=${ranges.size}, extension=$extension"
+            )
+            try {
+                ranges.forEachIndexed { zeroBasedIndex, range ->
+                    if (cancellationRequested) throw BatchCancelledException(savedPaths.size)
+                    val clipNumber = zeroBasedIndex + 1
+                    val duration = range.durationSeconds
+                    val output = File(
+                        context.cacheDir,
+                        "batch_${batchTimestamp}_${clipNumber.toString().padStart(3, '0')}.$extension"
+                    )
+                    try {
+                        val arguments = mutableListOf(
+                            "-hide_banner",
+                            "-y",
+                            "-ss", formatNumber(range.startSeconds),
+                            "-i", input.absolutePath,
+                            "-t", formatNumber(duration)
+                        )
+                        arguments += codecArguments
+                        arguments += output.absolutePath
+
+                        diagnostics.log(
+                            "INFO",
+                            "Starting clip $clipNumber of ${ranges.size}: " +
+                                arguments.joinToString(" ") { redactCachePath(it) }
+                        )
+                        onProgress(
+                            BatchProgress(
+                                currentClip = clipNumber,
+                                totalClips = ranges.size,
+                                overallPercent = ((zeroBasedIndex.toDouble() / ranges.size) * 100).toInt(),
+                                message = "Processing clip $clipNumber of ${ranges.size}"
+                            )
+                        )
+                        val session = execute(
+                            arguments = arguments,
+                            expectedDurationMs = (duration * 1000).toLong()
+                        ) { currentClipPercent ->
+                            val overall = (((zeroBasedIndex + currentClipPercent / 100.0) / ranges.size) * 100)
+                                .toInt()
+                                .coerceIn(0, 99)
+                            onProgress(
+                                BatchProgress(
+                                    currentClip = clipNumber,
+                                    totalClips = ranges.size,
+                                    overallPercent = overall,
+                                    message = "Processing clip $clipNumber of ${ranges.size}"
+                                )
+                            )
+                        }
+                        if (ReturnCode.isCancel(session.returnCode) || cancellationRequested) {
+                            throw BatchCancelledException(savedPaths.size)
+                        }
+                        ensureSessionSucceeded(session) { BatchCancelledException(savedPaths.size) }
+                        check(output.exists() && output.length() > 0L) {
+                            "The media engine did not create clip $clipNumber"
+                        }
+                        val requestedName = "ITthute_${outputPrefix}_${batchTimestamp}_clip_${clipNumber.toString().padStart(3, '0')}.$extension"
+                        val savedPath = saveResult(
+                            source = output,
+                            kind = kind,
+                            extension = extension,
+                            requestedName = requestedName
+                        )
+                        savedPaths += savedPath
+                        diagnostics.log("INFO", "Clip $clipNumber saved: $savedPath")
+                    } finally {
+                        output.delete()
+                        activeSessionId = null
+                    }
+                }
+                onProgress(
+                    BatchProgress(
+                        currentClip = ranges.size,
+                        totalClips = ranges.size,
+                        overallPercent = 100,
+                        message = "Completed ${ranges.size} clip${if (ranges.size == 1) "" else "s"}"
+                    )
                 )
-                val session = execute(arguments, (duration * 1000).toLong())
-                ensureSessionSucceeded(session)
-                check(output.exists() && output.length() > 0L) { "The media engine did not create an output file" }
-                val savedPath = saveResult(output, kind, extension)
-                diagnostics.log("INFO", "Export completed: $savedPath (${output.length()} bytes)")
-                savedPath
+                diagnostics.log("INFO", "Batch export completed: ${savedPaths.size} files saved")
+                BatchResult(savedPaths)
             } catch (throwable: Throwable) {
-                diagnostics.log("ERROR", "Media export failed", throwable)
+                diagnostics.log(
+                    "ERROR",
+                    "Batch export failed after ${savedPaths.size} of ${ranges.size} clips",
+                    throwable
+                )
                 throw throwable
             } finally {
                 activeSessionId = null
                 input.delete()
-                output.delete()
             }
         }
     }
@@ -143,7 +229,7 @@ class MediaProcessor(
                         if (ReturnCode.isCancel(session.returnCode) || cancellationRequested) {
                             throw DivisionCancelledException(savedPaths.size)
                         }
-                        ensureSessionSucceeded(session)
+                        ensureSessionSucceeded(session) { DivisionCancelledException(savedPaths.size) }
                         check(output.exists() && output.length() > 0L) {
                             "The media engine did not create division part $partNumber"
                         }
@@ -268,11 +354,12 @@ class MediaProcessor(
         return arguments
     }
 
-    private fun ensureSessionSucceeded(session: FFmpegSession) {
+    private fun ensureSessionSucceeded(
+        session: FFmpegSession,
+        cancellationException: () -> Throwable
+    ) {
         if (ReturnCode.isSuccess(session.returnCode)) return
-        if (ReturnCode.isCancel(session.returnCode) || cancellationRequested) {
-            throw DivisionCancelledException(0)
-        }
+        if (ReturnCode.isCancel(session.returnCode) || cancellationRequested) throw cancellationException()
         val logs = session.allLogsAsString.orEmpty()
         val details = session.failStackTrace?.takeIf { it.isNotBlank() }
             ?: logs.takeLast(12_000).takeIf { it.isNotBlank() }
@@ -411,6 +498,15 @@ class MediaProcessor(
 
     enum class MediaKind { AUDIO, VIDEO }
 
+    data class BatchProgress(
+        val currentClip: Int,
+        val totalClips: Int,
+        val overallPercent: Int,
+        val message: String
+    )
+
+    data class BatchResult(val savedPaths: List<String>)
+
     data class DivisionProgress(
         val currentPart: Int,
         val totalParts: Int,
@@ -421,6 +517,14 @@ class MediaProcessor(
     data class DivisionResult(val savedPaths: List<String>)
 
     class MediaProcessingException(message: String) : Exception(message)
+
+    class BatchCancelledException(val completedClips: Int) : Exception(
+        if (completedClips > 0) {
+            "Operation cancelled after $completedClips clip${if (completedClips == 1) " was" else "s were"} saved"
+        } else {
+            "Operation cancelled"
+        }
+    )
 
     class DivisionCancelledException(val completedParts: Int) : Exception(
         if (completedParts > 0) {
