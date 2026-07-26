@@ -27,7 +27,7 @@ jobs:
         run: yes | sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - name: Test, build and lint
         run: gradle --stacktrace testDebugUnitTest assembleDebug lint
-      - name: Verify FFmpeg runtime dependencies
+      - name: Verify packaged runtime and feature classes
         shell: bash
         run: |
           set -euo pipefail
@@ -39,6 +39,8 @@ jobs:
           unzip -p "$APK" 'classes*.dex' | strings > packaged-dex-strings.txt
           grep -Fq 'Lcom/arthenica/smartexception/java/Exceptions;' packaged-dex-strings.txt
           grep -Fq 'Lafrica/itthute/mediasplitter/FileDividerController;' packaged-dex-strings.txt
+          grep -Fq 'Lafrica/itthute/mediasplitter/ClipRangeController;' packaged-dex-strings.txt
+          grep -Fq 'Lafrica/itthute/mediasplitter/SettingsController;' packaged-dex-strings.txt
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
