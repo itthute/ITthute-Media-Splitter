@@ -26,7 +26,10 @@ jobs:
       - name: Install Android SDK
         run: yes | sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - name: Test, build and lint
-        run: gradle --stacktrace testDebugUnitTest assembleDebug lint
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle --stacktrace testDebugUnitTest assembleDebug lint 2>&1 | tee android-build.log
       - name: Verify packaged runtime and feature classes
         shell: bash
         run: |
@@ -47,6 +50,13 @@ jobs:
           name: ITthute-Media-Splitter-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ITthute-Media-Splitter-build-log
+          path: android-build.log
+          if-no-files-found: ignore
       - name: Upload lint report
         if: always()
         uses: actions/upload-artifact@v4
