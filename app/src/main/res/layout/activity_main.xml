@@ -6,13 +6,14 @@
     android:orientation="vertical">
 
     <LinearLayout
+        android:id="@+id/headerContainer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingStart="20dp"
         android:paddingTop="14dp"
-        android:paddingEnd="20dp"
+        android:paddingEnd="10dp"
         android:paddingBottom="10dp">
 
         <ImageView
@@ -41,6 +42,16 @@
                 android:layout_height="wrap_content"
                 android:text="@string/app_tagline" />
         </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/overflowMenuButton"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:contentDescription="@string/open_application_menu"
+            android:minWidth="48dp"
+            android:text="⋮"
+            android:textSize="28sp" />
     </LinearLayout>
 
     <FrameLayout
@@ -97,32 +108,37 @@
 
                         <TextView
                             style="@style/Widget.ITthute.SectionTitle"
-                            android:text="@string/clip_range" />
+                            android:text="@string/clip_ranges" />
 
-                        <com.google.android.material.textfield.TextInputLayout
+                        <TextView
+                            android:id="@+id/clipCountLabel"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:hint="@string/start_time_hint">
+                            android:layout_marginTop="6dp"
+                            android:text="@string/one_clip_range" />
 
-                            <com.google.android.material.textfield.TextInputEditText
-                                android:id="@+id/startTime"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:inputType="text"
-                                android:text="0" />
-                        </com.google.android.material.textfield.TextInputLayout>
-
-                        <com.google.android.material.textfield.TextInputLayout
+                        <com.google.android.material.slider.Slider
+                            android:id="@+id/clipCountSlider"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:hint="@string/end_time_hint">
+                            android:layout_marginTop="4dp"
+                            android:stepSize="1"
+                            android:value="1"
+                            android:valueFrom="1"
+                            android:valueTo="20" />
 
-                            <com.google.android.material.textfield.TextInputEditText
-                                android:id="@+id/endTime"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:inputType="text" />
-                        </com.google.android.material.textfield.TextInputLayout>
+                        <TextView
+                            android:id="@+id/clipRangesHint"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/choose_media_before_ranges"
+                            android:textSize="12sp" />
+
+                        <LinearLayout
+                            android:id="@+id/clipRangesContainer"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
@@ -139,8 +155,9 @@
                         android:padding="16dp">
 
                         <TextView
+                            android:id="@+id/audioActionTitle"
                             style="@style/Widget.ITthute.SectionTitle"
-                            android:text="@string/extract_audio" />
+                            android:text="@string/extract_and_trim_audio" />
 
                         <Spinner
                             android:id="@+id/audioFormat"
@@ -151,7 +168,8 @@
                             android:id="@+id/exportAudioButton"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="@string/save_audio_clip" />
+                            android:enabled="false"
+                            android:text="@string/save_audio_clips" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
@@ -169,7 +187,15 @@
 
                         <TextView
                             style="@style/Widget.ITthute.SectionTitle"
-                            android:text="@string/create_silent_video" />
+                            android:text="@string/create_silent_video_clips" />
+
+                        <TextView
+                            android:id="@+id/videoSourceNote"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/silent_video_disabled_for_audio"
+                            android:textSize="12sp"
+                            android:visibility="gone" />
 
                         <Spinner
                             android:id="@+id/videoFormat"
@@ -180,15 +206,26 @@
                             android:id="@+id/exportVideoButton"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="@string/save_silent_video_clip" />
+                            android:enabled="false"
+                            android:text="@string/save_silent_video_clips" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
-                <ProgressBar
-                    android:id="@+id/progress"
+                <com.google.android.material.progressindicator.LinearProgressIndicator
+                    android:id="@+id/batchProgress"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
+                    android:max="100"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/progressText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="@string/preparing_media"
+                    android:textStyle="bold"
                     android:visibility="gone" />
 
                 <TextView
