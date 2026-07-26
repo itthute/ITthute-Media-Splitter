@@ -3,12 +3,20 @@
         <item quantity="one">%d recent split media file</item>
         <item quantity="other">%d recent split media files</item>
     </plurals>
-    <plurals name="division_plan_count">
-        <item quantity="one">This will create %1$d %3$s file using %2$d-second divisions.</item>
-        <item quantity="other">This will create %1$d %3$s files using %2$d-second divisions.</item>
+    <plurals name="division_file_count">
+        <item quantity="one">This will create %1$d file.</item>
+        <item quantity="other">This will create %1$d files.</item>
     </plurals>
-    <plurals name="division_complete_count">
-        <item quantity="one">Division complete: %d file saved.</item>
-        <item quantity="other">Division complete: %d files saved.</item>
+    <plurals name="division_files_saved">
+        <item quantity="one">Division complete: %1$d file saved.</item>
+        <item quantity="other">Division complete: %1$d files saved.</item>
+    </plurals>
+    <plurals name="clip_range_count">
+        <item quantity="one">%1$d clip range (maximum %2$d)</item>
+        <item quantity="other">%1$d clip ranges (maximum %2$d)</item>
+    </plurals>
+    <plurals name="media_files_saved">
+        <item quantity="one">%1$d media file saved</item>
+        <item quantity="other">%1$d media files saved</item>
     </plurals>
 </resources>
